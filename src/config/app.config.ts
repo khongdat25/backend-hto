@@ -10,7 +10,7 @@ export default registerAs('app', () => ({
 
 function parseCorsOrigins(value?: string): string[] {
   if (!value) {
-    return ['http://localhost:3000', 'http://localhost:5173'];
+    return ['http://localhost:3000', 'http://localhost:5173', 'https://frontend-hto.vercel.app/' ];
   }
 
   return value
