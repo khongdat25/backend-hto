@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { ROLE_IDS } from '../../common/constants/role.constants';
 
 @Injectable()
 export class AuthService {
@@ -12,6 +14,32 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
+
+  async register(registerDto: RegisterDto) {
+    const { email, password, fullName } = registerDto;
+
+    // Kiểm tra email tồn tại
+    const existingUser = await this.usersService.findByEmail(email);
+    if (existingUser) {
+      throw new UnauthorizedException('Email đã được sử dụng');
+    }
+
+    // Hash mật khẩu
+    const saltOrRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltOrRounds);
+
+    // Tạo user mới với dữ liệu chuẩn Prisma
+    const newUser = await this.usersService.create({
+      fullName,
+      email,
+      passwordHash,
+      roleId: ROLE_IDS.USER,
+    });
+
+    // Bỏ passwordHash trước khi trả về
+    const { passwordHash: _ph, ...result } = newUser;
+    return result;
+  }
 
   async validateUser(loginDto: LoginDto): Promise<any> {
     const { email, password } = loginDto;
@@ -23,8 +51,8 @@ export class AuthService {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');
     }
 
-    // 2. Kiểm tra mật khẩu (Sử dụng trường "password_hash" từ DB)
-    const dbPassword = user.password_hash;
+    // 2. Kiểm tra mật khẩu (Sử dụng trường "passwordHash" từ DB)
+    const dbPassword = user.passwordHash;
     if (!dbPassword) {
       throw new UnauthorizedException(
         'Cấu trúc dữ liệu người dùng không hợp lệ',
@@ -44,7 +72,7 @@ export class AuthService {
     }
 
     // Trả về user (loại bỏ mật khẩu để bảo mật)
-    const { password_hash: _p, ...result } = user;
+    const { passwordHash: _ph, ...result } = user;
     return result;
   }
 
@@ -59,12 +87,9 @@ export class AuthService {
     const payload = {
       sub: userId,
       email: user.email,
-      roleId: user.role_id,
-      departmentId: user.department_id,
+      roleId: user.roleId,
+      departmentId: user.departmentId,
     };
-
-    // Lấy config cho tokens
-    const config = (this.jwtService as any).options || {};
 
     return {
       access_token: this.jwtService.sign(payload),
@@ -74,11 +99,11 @@ export class AuthService {
       }),
       user: {
         id: userId,
-        fullName: user.full_name,
+        fullName: user.fullName,
         email: user.email,
-        avatarUrl: user.avatar_url,
-        roleId: user.role_id,
-        departmentId: user.department_id,
+        avatarUrl: user.avatarUrl,
+        roleId: user.roleId,
+        departmentId: user.departmentId,
       },
     };
   }

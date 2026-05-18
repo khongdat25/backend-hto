@@ -28,4 +28,25 @@ export class UsersRepository {
       $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }],
     });
   }
+
+  async create(user: any) {
+    // Map _id (nếu cần thiết cho relation) và gán mặc định các trường
+    // Insert dữ liệu theo chuẩn camelCase của Prisma Schema
+    const dataToInsert = {
+      fullName: user.fullName,
+      email: user.email,
+      passwordHash: user.passwordHash,
+      roleId: ObjectId.isValid(user.roleId) ? new ObjectId(user.roleId) : user.roleId,
+      departmentId: user.departmentId && ObjectId.isValid(user.departmentId) ? new ObjectId(user.departmentId) : null,
+      status: user.status || 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      avatarUrl: user.avatarUrl || null,
+      phone: user.phone || null,
+    };
+
+    const result = await this.collection.insertOne(dataToInsert);
+    return { ...dataToInsert, _id: result.insertedId };
+  }
 }
