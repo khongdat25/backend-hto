@@ -17,4 +17,8 @@ export class UsersService {
   async create(userData: any) {
     return await this.usersRepository.create(userData);
   }
+
+  async updatePassword(userId: string, passwordHash: string) {
+    return await this.usersRepository.updatePassword(userId, passwordHash);
+  }
 }

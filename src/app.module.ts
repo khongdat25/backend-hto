@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
-import { appConfig, databaseConfig, authConfig } from './config';
+import { appConfig, databaseConfig, authConfig, mailConfig } from './config';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { UsersModule } from './modules/users/users.module';
@@ -14,7 +14,7 @@ import { SearchModule } from './modules/search/search.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      load: [appConfig, databaseConfig, authConfig],
+      load: [appConfig, databaseConfig, authConfig, mailConfig],
     }),
     DatabaseModule,
     HealthModule,

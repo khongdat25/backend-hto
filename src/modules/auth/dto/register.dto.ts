@@ -7,9 +7,12 @@ export class RegisterDto {
   @IsString({ message: 'Họ và tên phải là chuỗi ký tự' })
   fullName: string;
 
-  @ApiProperty({ example: 'user@example.com' })
+  @ApiProperty({ example: 'user@gmail.com' })
   @IsEmail({}, { message: 'Email không đúng định dạng' })
   @IsNotEmpty({ message: 'Email không được để trống' })
+  @Matches(/^[a-zA-Z0-9._%+-]+@gmail\.com$/, {
+    message: 'Email phải là địa chỉ Gmail hợp lệ (ví dụ: example@gmail.com)',
+  })
   email: string;
 
   @ApiProperty({ example: 'Password@123', description: 'Tối thiểu 8 ký tự, có chữ hoa, chữ thường và ký tự đặc biệt' })

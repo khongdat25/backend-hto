@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -30,6 +32,24 @@ export class AuthController {
 
     // 2. Tạo và trả về JWT token
     return this.authService.login(user);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Yêu cầu đặt lại mật khẩu' })
+  @ApiResponse({ status: 200, description: 'Email đặt lại mật khẩu đã được gửi' })
+  @ApiResponse({ status: 404, description: 'Email không tồn tại trong hệ thống' })
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Đặt lại mật khẩu mới' })
+  @ApiResponse({ status: 200, description: 'Mật khẩu đã được đặt lại thành công' })
+  @ApiResponse({ status: 401, description: 'Token không hợp lệ hoặc đã hết hạn' })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 
   @UseGuards(JwtAuthGuard)
