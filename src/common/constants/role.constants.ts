@@ -9,4 +9,5 @@ export const ROLE_IDS = {
   NHAN_SU: '69fc5af582ef85451120772d',
   DAI_LY: '69fc5af582ef85451120772e',
   CTV: '69fc5af682ef85451120772f',
+  USER: '69fc5af782ef854511207730', // Người dùng bình thường
 };

@@ -13,4 +13,8 @@ export class UsersService {
   async findById(id: string) {
     return await this.usersRepository.findById(id);
   }
+
+  async create(userData: any) {
+    return await this.usersRepository.create(userData);
+  }
 }

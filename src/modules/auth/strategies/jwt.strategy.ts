@@ -27,7 +27,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
-    const { password_hash: _password, ...safeUser } = user;
+    const { passwordHash: _password, ...safeUser } = user;
     return safeUser;
   }
 }

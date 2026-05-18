@@ -26,15 +26,13 @@ export class SearchService {
       const catIds = categories.flatMap(c => [c._id, c.id].filter(id => id != null));
       const deptIds = departments.flatMap(d => [d._id, d.id].filter(id => id != null));
 
-      // 2. Xây dựng $or filter cho tất cả các trường
+      // 2. Xây dựng $or filter cho tất cả các trường (theo chuẩn camelCase của Prisma)
       filter.$or = [
         { title: searchRegex },
         { description: searchRegex },
         { tags: searchRegex },
         { categoryId: { $in: catIds } },
-        { category_id: { $in: catIds } },
         { departmentId: { $in: deptIds } },
-        { department_id: { $in: deptIds } }
       ];
     }
 
@@ -46,8 +44,8 @@ export class SearchService {
       filter.status = 'active';
       filter.required_role_id = { $in: [null, undefined, ''] };
     } else {
-      const userRole = user.roleId || user.role_id;
-      const userDept = user.departmentId || user.department_id;
+      const userRole = user.roleId;
+      const userDept = user.departmentId;
 
       if (userRole !== ROLE_ADMIN && userRole !== ROLE_BGD) {
         const rbacConditions: any = {
