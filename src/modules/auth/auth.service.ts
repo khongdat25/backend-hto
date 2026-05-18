@@ -1,10 +1,15 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
+import { AuthRepository } from './auth.repository';
+import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ROLE_IDS } from '../../common/constants/role.constants';
 
 @Injectable()
@@ -13,7 +18,9 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+    private readonly authRepository: AuthRepository,
+    private readonly mailService: MailService,
+  ) { }
 
   async register(registerDto: RegisterDto) {
     const { email, password, fullName } = registerDto;
@@ -21,7 +28,7 @@ export class AuthService {
     // Kiểm tra email tồn tại
     const existingUser = await this.usersService.findByEmail(email);
     if (existingUser) {
-      throw new UnauthorizedException('Email đã được sử dụng');
+      throw new ConflictException('Email đã được sử dụng');
     }
 
     // Hash mật khẩu
@@ -46,7 +53,7 @@ export class AuthService {
 
     // 1. Tìm user theo email
     const user = await this.usersService.findByEmail(email);
-    
+
     if (!user) {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');
     }
@@ -106,5 +113,57 @@ export class AuthService {
         departmentId: user.departmentId,
       },
     };
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
+    const { email } = forgotPasswordDto;
+
+    // 1. Kiểm tra email có tồn tại trong hệ thống không
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('Email không tồn tại trong hệ thống');
+    }
+
+    // 2. Tạo token ngẫu nhiên (64 ký tự hex)
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // hết hạn sau 15 phút
+
+    // 3. Xóa token cũ (nếu có) và lưu token mới vào DB thông qua Repository
+    await this.authRepository.deleteTokensByEmail(email);
+    await this.authRepository.createToken(user._id.toString(), email, token, expiresAt);
+
+    // 4. Tạo link reset và gửi email
+    const frontendUrl = this.configService.get<string>('mail.frontendUrl');
+    const resetLink = `${frontendUrl}/reset-password?token=${token}`;
+    await this.mailService.sendPasswordResetEmail(email, resetLink);
+
+    return { message: 'Email đặt lại mật khẩu đã được gửi, vui lòng kiểm tra hộp thư của bạn' };
+  }
+
+  async resetPassword(resetPasswordDto: ResetPasswordDto) {
+    const { token, password } = resetPasswordDto;
+
+    // 1. Tìm token thông qua Repository
+    const tokenDoc = await this.authRepository.findToken(token);
+    if (!tokenDoc) {
+      throw new UnauthorizedException('Token không hợp lệ hoặc đã được sử dụng');
+    }
+
+    // 2. Kiểm tra token chưa hết hạn
+    if (new Date() > tokenDoc.expiresAt) {
+      await this.authRepository.deleteToken(token);
+      throw new UnauthorizedException('Token đã hết hạn, vui lòng yêu cầu đặt lại mật khẩu mới');
+    }
+
+    // 3. Hash mật khẩu mới
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // 4. Cập nhật mật khẩu cho user
+    await this.usersService.updatePassword(tokenDoc.userId.toString(), passwordHash);
+
+    // 5. Xóa token đã dùng thông qua Repository
+    await this.authRepository.deleteToken(token);
+
+    return { message: 'Mật khẩu đã được đặt lại thành công' };
   }
 }

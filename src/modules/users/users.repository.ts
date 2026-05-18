@@ -49,4 +49,12 @@ export class UsersRepository {
     const result = await this.collection.insertOne(dataToInsert);
     return { ...dataToInsert, _id: result.insertedId };
   }
+
+  async updatePassword(userId: string, passwordHash: string) {
+    // Cập nhật mật khẩu mới cho user theo ID
+    const idFilter = ObjectId.isValid(userId) ? new ObjectId(userId) : userId;
+    const updateDoc: any = {};
+    updateDoc['$set'] = { passwordHash, updatedAt: new Date() };
+    return await this.collection.updateOne({ _id: idFilter as any }, updateDoc);
+  }
 }
