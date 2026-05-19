@@ -1,20 +1,23 @@
 import { Injectable } from '@nestjs/common';
+import {
+  CreateUserInput,
+  UserDocument,
+} from './interfaces/user-document.interface';
 import { UsersRepository } from './users.repository';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly usersRepository: UsersRepository) {}
 
-  async findByEmail(email: string) {
-    // Gọi repository để tìm user
+  async findByEmail(email: string): Promise<UserDocument | null> {
     return await this.usersRepository.findByEmail(email);
   }
 
-  async findById(id: string) {
+  async findById(id: string): Promise<UserDocument | null> {
     return await this.usersRepository.findById(id);
   }
 
-  async create(userData: any) {
+  async create(userData: CreateUserInput): Promise<UserDocument> {
     return await this.usersRepository.create(userData);
   }
 

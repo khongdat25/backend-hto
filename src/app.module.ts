@@ -8,7 +8,6 @@ import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SearchModule } from './modules/search/search.module';
 
-
 @Module({
   imports: [
     ConfigModule.forRoot({

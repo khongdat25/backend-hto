@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsString, Matches } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty({ example: 'Nguyễn Văn A' })
@@ -15,11 +15,14 @@ export class RegisterDto {
   })
   email: string;
 
-  @ApiProperty({ example: 'Password@123', description: 'Tối thiểu 8 ký tự, có chữ hoa, chữ thường và ký tự đặc biệt' })
+  @ApiProperty({
+    example: 'Password@123',
+    description: 'Tối thiểu 8 ký tự, có chữ hoa, chữ thường và ký tự đặc biệt',
+  })
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*[\W_]).{8,}$/, {
-    message: 'Mật khẩu phải từ 8 ký tự, bao gồm chữ hoa, chữ thường và ký tự đặc biệt',
+    message:
+      'Mật khẩu phải từ 8 ký tự, bao gồm chữ hoa, chữ thường và ký tự đặc biệt',
   })
   password: string;
-
 }

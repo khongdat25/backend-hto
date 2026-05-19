@@ -1,100 +1,114 @@
 import { Injectable } from '@nestjs/common';
-import { SearchDocumentDto } from './dto/search-document.dto';
+import { Filter } from 'mongodb';
 import { ROLE_IDS } from '../../common/constants/role.constants';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { SearchDocumentDto } from './dto/search-document.dto';
+import {
+  AccessLevel,
+  KnowledgeDocumentDocument,
+  MongoId,
+} from './interfaces/search-document.interface';
 import { SearchRepository } from './search.repository';
 
 @Injectable()
 export class SearchService {
-  constructor(private readonly searchRepository: SearchRepository) { }
+  constructor(private readonly searchRepository: SearchRepository) {}
 
-  async searchDocuments(query: SearchDocumentDto, user?: any) {
-    const { keyword, limit = 10, page = 1 } = query;
+  async searchDocuments(query: SearchDocumentDto, user?: AuthenticatedUser) {
+    const limit = query.limit ?? 10;
+    const page = query.page ?? 1;
     const skip = (page - 1) * limit;
-
-    const filter: any = { deletedAt: null };
-
-    // --- LOGIC TÌM KIẾM THÔNG MINH TRÊN 1 Ô DUY NHẤT ---
-    if (keyword) {
-      const searchRegex = { $regex: keyword, $options: 'i' };
-      
-      // 1. Tìm các Danh mục hoặc Phòng ban có tên chứa từ khóa
-      const [categories, departments] = await Promise.all([
-        this.searchRepository.findCategories({ name: searchRegex }),
-        this.searchRepository.findDepartments({ name: searchRegex })
-      ]);
-
-      const catIds = categories.flatMap(c => [c._id, c.id].filter(id => id != null));
-      const deptIds = departments.flatMap(d => [d._id, d.id].filter(id => id != null));
-
-      // 2. Xây dựng $or filter cho tất cả các trường (theo chuẩn camelCase của Prisma)
-      filter.$or = [
-        { title: searchRegex },
-        { description: searchRegex },
-        { tags: searchRegex },
-        { categoryId: { $in: catIds } },
-        { departmentId: { $in: deptIds } },
-      ];
-    }
-
-    // --- LOGIC PHÂN QUYỀN ---
-    const ROLE_ADMIN = ROLE_IDS.ADMIN;
-    const ROLE_BGD = ROLE_IDS.BGD;
-
-    if (!user) {
-      filter.status = 'active';
-      filter.required_role_id = { $in: [null, undefined, ''] };
-    } else {
-      const userRole = user.roleId;
-      const userDept = user.departmentId;
-
-      if (userRole !== ROLE_ADMIN && userRole !== ROLE_BGD) {
-        const rbacConditions: any = {
-          $and: [
-            { $or: [{ departmentId: userDept }, { department_id: userDept }] },
-            { 
-              $or: [
-                { required_role_id: userRole },
-                { required_role_id: { $exists: false } },
-                { required_role_id: null },
-                { required_role_id: '' }
-              ] 
-            }
-          ]
-        };
-        if (filter.$and) filter.$and.push(rbacConditions);
-        else filter.$and = [rbacConditions];
-      }
-    }
-
+    const filter = await this.buildFilter(query, user);
     const [items, total] = await Promise.all([
       this.searchRepository.findDocuments(filter, {
         skip,
-        limit: Number(limit),
-        sort: { createdAt: -1 }
+        limit,
+        sort: { createdAt: -1 },
       }),
       this.searchRepository.countDocuments(filter),
     ]);
-
-    if (total === 0) {
-      return {
-        items: [],
-        meta: {
-          total: 0,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: 0,
-        },
-      };
-    }
 
     return {
       items,
       meta: {
         total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
+        page,
+        limit,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
       },
     };
   }
+
+  private async buildFilter(
+    query: SearchDocumentDto,
+    user?: AuthenticatedUser,
+  ): Promise<Filter<KnowledgeDocumentDocument>> {
+    const andConditions: Filter<KnowledgeDocumentDocument>[] = [];
+    const keyword = query.keyword?.trim();
+
+    if (keyword) {
+      andConditions.push(await this.buildKeywordFilter(keyword));
+    }
+
+    if (!isElevatedUser(user)) {
+      const accessLevels: AccessLevel[] = user
+        ? ['public', 'internal']
+        : ['public'];
+      const categoryIds =
+        await this.searchRepository.findCategoryIdsByAccessLevels(accessLevels);
+
+      andConditions.push({
+        categoryId: { $in: expandMongoIds(categoryIds) },
+        status: 'active',
+      });
+    }
+
+    if (andConditions.length === 0) {
+      return {};
+    }
+
+    return { $and: andConditions };
+  }
+
+  private async buildKeywordFilter(
+    keyword: string,
+  ): Promise<Filter<KnowledgeDocumentDocument>> {
+    const keywordRegex = new RegExp(escapeRegExp(keyword), 'i');
+    const categories = await this.searchRepository.findCategories({
+      name: keywordRegex,
+    });
+    const matchingCategoryIds = expandMongoIds(
+      categories.map((category) => category._id),
+    );
+    const keywordConditions: Filter<KnowledgeDocumentDocument>[] = [
+      { title: keywordRegex },
+      { fileType: keywordRegex },
+      { fileUrl: keywordRegex },
+    ];
+
+    if (matchingCategoryIds.length > 0) {
+      keywordConditions.push({ categoryId: { $in: matchingCategoryIds } });
+    }
+
+    return { $or: keywordConditions };
+  }
+}
+
+function isElevatedUser(user?: AuthenticatedUser): boolean {
+  return Boolean(user && [ROLE_IDS.ADMIN, ROLE_IDS.BGD].includes(user.roleId));
+}
+
+function expandMongoIds(ids: MongoId[]): MongoId[] {
+  const expandedIds = new Map<string, MongoId>();
+
+  for (const id of ids) {
+    expandedIds.set(id.toString(), id);
+    expandedIds.set(`string:${id.toString()}`, id.toString());
+  }
+
+  return Array.from(expandedIds.values());
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

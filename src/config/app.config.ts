@@ -1,6 +1,11 @@
 import { registerAs } from '@nestjs/config';
 
 const DEFAULT_PORT = 8080;
+const DEFAULT_CORS_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://hubportal-eight.vercel.app',
+];
 
 export default registerAs('app', () => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -9,12 +14,13 @@ export default registerAs('app', () => ({
 }));
 
 function parseCorsOrigins(value?: string): string[] {
-  if (!value) {
-    return ['http://localhost:3000', 'http://localhost:5173', 'https://frontend-hto.vercel.app/' ];
-  }
+  const origins = value ? value.split(',') : DEFAULT_CORS_ORIGINS;
 
-  return value
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  return Array.from(
+    new Set(
+      origins
+        .map((origin) => origin.trim().replace(/\/+$/, ''))
+        .filter(Boolean),
+    ),
+  );
 }

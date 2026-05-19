@@ -10,6 +10,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from '../mail/mail.module';
 import { DatabaseModule } from '../../database/database.module';
 
+type JwtExpiresIn = `${number}${'s' | 'm' | 'h' | 'd'}` | number;
+
 @Module({
   imports: [
     UsersModule,
@@ -22,7 +24,7 @@ import { DatabaseModule } from '../../database/database.module';
       useFactory: (configService: ConfigService) => ({
         secret: configService.getOrThrow<string>('auth.jwtSecret'),
         signOptions: {
-          expiresIn: configService.getOrThrow<string>('auth.jwtExpiresIn') as any,
+          expiresIn: getJwtExpiresIn(configService),
         },
       }),
     }),
@@ -32,3 +34,13 @@ import { DatabaseModule } from '../../database/database.module';
   exports: [AuthService],
 })
 export class AuthModule {}
+
+function getJwtExpiresIn(configService: ConfigService): JwtExpiresIn {
+  const value = configService.getOrThrow<string>('auth.jwtExpiresIn');
+
+  if (/^\d+$/.test(value)) {
+    return Number(value);
+  }
+
+  return value as JwtExpiresIn;
+}

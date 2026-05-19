@@ -1,17 +1,42 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class SearchDocumentDto {
-  @ApiPropertyOptional({ description: 'Từ khóa tìm kiếm (Tìm theo Tên, Mô tả, Tag, Danh mục hoặc Phòng ban)' })
+  @ApiPropertyOptional({
+    description: 'Keyword for title, file type, file URL, or category name',
+  })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   keyword?: string;
 
-  @ApiPropertyOptional({ description: 'Số lượng kết quả mỗi trang', default: 10 })
+  @ApiPropertyOptional({
+    description: 'Number of results per page',
+    default: 10,
+    maximum: 100,
+  })
   @IsOptional()
-  limit?: number = 10;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 10;
 
-  @ApiPropertyOptional({ description: 'Trang hiện tại', default: 1 })
+  @ApiPropertyOptional({ description: 'Current page', default: 1 })
   @IsOptional()
-  page?: number = 1;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
 }
