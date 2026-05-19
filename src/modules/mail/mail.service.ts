@@ -19,7 +19,10 @@ export class MailService {
     });
   }
 
-  async sendPasswordResetEmail(email: string, resetLink: string): Promise<void> {
+  async sendPasswordResetEmail(
+    email: string,
+    resetLink: string,
+  ): Promise<void> {
     const fromName = this.configService.get<string>('mail.fromName');
     const fromEmail = this.configService.get<string>('mail.user');
 

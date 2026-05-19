@@ -1,16 +1,36 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../users/users.service';
-import { AuthRepository } from './auth.repository';
-import { MailService } from '../mail/mail.service';
+import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+import { createHash, randomBytes } from 'crypto';
+import {
+  AuthenticatedUser,
+  JwtPayload,
+} from '../../common/interfaces/authenticated-user.interface';
 import { ROLE_IDS } from '../../common/constants/role.constants';
+import {
+  MongoId,
+  UserDocument,
+} from '../users/interfaces/user-document.interface';
+import { UsersService } from '../users/users.service';
+import { MailService } from '../mail/mail.service';
+import { AuthRepository } from './auth.repository';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+
+const PASSWORD_RESET_RESPONSE = {
+  message:
+    'Neu email ton tai trong he thong, lien ket dat lai mat khau da duoc gui.',
+};
+const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -20,22 +40,17 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly authRepository: AuthRepository,
     private readonly mailService: MailService,
-  ) { }
+  ) {}
 
-  async register(registerDto: RegisterDto) {
+  async register(registerDto: RegisterDto): Promise<AuthenticatedUser> {
     const { email, password, fullName } = registerDto;
-
-    // Kiểm tra email tồn tại
     const existingUser = await this.usersService.findByEmail(email);
+
     if (existingUser) {
-      throw new ConflictException('Email đã được sử dụng');
+      throw new ConflictException('Email da duoc su dung');
     }
 
-    // Hash mật khẩu
-    const saltOrRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltOrRounds);
-
-    // Tạo user mới với dữ liệu chuẩn Prisma
+    const passwordHash = await bcrypt.hash(password, 10);
     const newUser = await this.usersService.create({
       fullName,
       email,
@@ -43,127 +58,227 @@ export class AuthService {
       roleId: ROLE_IDS.USER,
     });
 
-    // Bỏ passwordHash trước khi trả về
-    const { passwordHash: _ph, ...result } = newUser;
-    return result;
+    return this.toAuthenticatedUser(newUser);
   }
 
-  async validateUser(loginDto: LoginDto): Promise<any> {
+  async validateUser(loginDto: LoginDto): Promise<AuthenticatedUser> {
     const { email, password } = loginDto;
-
-    // 1. Tìm user theo email
     const user = await this.usersService.findByEmail(email);
 
     if (!user) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');
+      throw new UnauthorizedException('Email hoac mat khau khong chinh xac');
     }
 
-    // 2. Kiểm tra mật khẩu (Sử dụng trường "passwordHash" từ DB)
-    const dbPassword = user.passwordHash;
-    if (!dbPassword) {
-      throw new UnauthorizedException(
-        'Cấu trúc dữ liệu người dùng không hợp lệ',
-      );
-    }
-
-    // So sánh mật khẩu
-    const isPasswordMatching = await bcrypt.compare(password, dbPassword);
+    const isPasswordMatching = await bcrypt.compare(
+      password,
+      user.passwordHash,
+    );
 
     if (!isPasswordMatching) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');
+      throw new UnauthorizedException('Email hoac mat khau khong chinh xac');
     }
 
-    // 3. Kiểm tra trạng thái user
-    if (user.status && user.status !== 'active') {
-      throw new UnauthorizedException('Tài khoản của bạn đã bị khóa');
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('Tai khoan da bi khoa');
     }
 
-    // Trả về user (loại bỏ mật khẩu để bảo mật)
-    const { passwordHash: _ph, ...result } = user;
-    return result;
+    return this.toAuthenticatedUser(user);
   }
 
-  async login(user: any) {
-    const userId = user._id?.toString();
-    if (!userId) {
-      throw new UnauthorizedException(
-        'Cấu trúc dữ liệu người dùng không hợp lệ',
-      );
+  async login(user: AuthenticatedUser) {
+    return await this.issueTokens(user);
+  }
+
+  async refresh(refreshTokenDto: RefreshTokenDto) {
+    const tokenHash = hashToken(refreshTokenDto.refreshToken);
+    const storedToken =
+      await this.authRepository.findActiveRefreshToken(tokenHash);
+
+    if (!storedToken) {
+      throw new UnauthorizedException('Refresh token khong hop le');
     }
 
-    const payload = {
-      sub: userId,
-      email: user.email,
-      roleId: user.roleId,
-      departmentId: user.departmentId,
-    };
+    if (new Date() > storedToken.expiresAt) {
+      await this.authRepository.revokeRefreshToken(tokenHash);
+      throw new UnauthorizedException('Refresh token da het han');
+    }
 
-    return {
-      access_token: this.jwtService.sign(payload),
-      refresh_token: this.jwtService.sign(payload, {
-        secret: this.configService.get<string>('auth.jwtRefreshSecret'),
-        expiresIn: this.configService.get<string>('auth.jwtRefreshExpiresIn') as any,
-      }),
-      user: {
-        id: userId,
-        fullName: user.fullName,
-        email: user.email,
-        avatarUrl: user.avatarUrl,
-        roleId: user.roleId,
-        departmentId: user.departmentId,
-      },
-    };
+    const user = await this.usersService.findById(
+      storedToken.userId.toString(),
+    );
+
+    if (!user || user.status !== 'active') {
+      await this.authRepository.revokeRefreshToken(tokenHash);
+      throw new UnauthorizedException('Nguoi dung khong hop le');
+    }
+
+    await this.authRepository.revokeRefreshToken(tokenHash);
+
+    return await this.issueTokens(this.toAuthenticatedUser(user));
+  }
+
+  async logout(refreshTokenDto: RefreshTokenDto) {
+    await this.authRepository.revokeRefreshToken(
+      hashToken(refreshTokenDto.refreshToken),
+    );
+
+    return { message: 'Dang xuat thanh cong' };
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     const { email } = forgotPasswordDto;
-
-    // 1. Kiểm tra email có tồn tại trong hệ thống không
     const user = await this.usersService.findByEmail(email);
+
     if (!user) {
-      throw new NotFoundException('Email không tồn tại trong hệ thống');
+      return PASSWORD_RESET_RESPONSE;
     }
 
-    // 2. Tạo token ngẫu nhiên (64 ký tự hex)
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // hết hạn sau 15 phút
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+    const userId = stringifyMongoId(user._id);
 
-    // 3. Xóa token cũ (nếu có) và lưu token mới vào DB thông qua Repository
-    await this.authRepository.deleteTokensByEmail(email);
-    await this.authRepository.createToken(user._id.toString(), email, token, expiresAt);
+    if (!userId) {
+      return PASSWORD_RESET_RESPONSE;
+    }
 
-    // 4. Tạo link reset và gửi email
-    const frontendUrl = this.configService.get<string>('mail.frontendUrl');
+    await this.authRepository.deletePasswordResetTokensByEmail(email);
+    await this.authRepository.createPasswordResetToken(
+      userId,
+      email,
+      tokenHash,
+      expiresAt,
+    );
+
+    const frontendUrl = this.configService.get<string>(
+      'mail.frontendUrl',
+      'http://localhost:3000',
+    );
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
     await this.mailService.sendPasswordResetEmail(email, resetLink);
 
-    return { message: 'Email đặt lại mật khẩu đã được gửi, vui lòng kiểm tra hộp thư của bạn' };
+    return PASSWORD_RESET_RESPONSE;
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
     const { token, password } = resetPasswordDto;
+    const tokenHash = hashToken(token);
+    const tokenDoc =
+      await this.authRepository.findPasswordResetToken(tokenHash);
 
-    // 1. Tìm token thông qua Repository
-    const tokenDoc = await this.authRepository.findToken(token);
     if (!tokenDoc) {
-      throw new UnauthorizedException('Token không hợp lệ hoặc đã được sử dụng');
+      throw new UnauthorizedException(
+        'Token khong hop le hoac da duoc su dung',
+      );
     }
 
-    // 2. Kiểm tra token chưa hết hạn
     if (new Date() > tokenDoc.expiresAt) {
-      await this.authRepository.deleteToken(token);
-      throw new UnauthorizedException('Token đã hết hạn, vui lòng yêu cầu đặt lại mật khẩu mới');
+      await this.authRepository.deletePasswordResetToken(tokenHash);
+      throw new UnauthorizedException('Token da het han');
     }
 
-    // 3. Hash mật khẩu mới
     const passwordHash = await bcrypt.hash(password, 10);
+    const updateResult = await this.usersService.updatePassword(
+      tokenDoc.userId.toString(),
+      passwordHash,
+    );
 
-    // 4. Cập nhật mật khẩu cho user
-    await this.usersService.updatePassword(tokenDoc.userId.toString(), passwordHash);
+    await this.authRepository.deletePasswordResetToken(tokenHash);
+    await this.authRepository.revokeRefreshTokensByUserId(
+      tokenDoc.userId.toString(),
+    );
 
-    // 5. Xóa token đã dùng thông qua Repository
-    await this.authRepository.deleteToken(token);
+    if (updateResult.matchedCount === 0) {
+      throw new UnauthorizedException('Nguoi dung khong hop le');
+    }
 
-    return { message: 'Mật khẩu đã được đặt lại thành công' };
+    return { message: 'Mat khau da duoc dat lai thanh cong' };
   }
+
+  private async issueTokens(user: AuthenticatedUser) {
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      roleId: user.roleId,
+      departmentId: user.departmentId,
+    };
+    const refreshToken = randomBytes(64).toString('hex');
+    const refreshTokenExpiresAt = new Date(
+      Date.now() + this.getRefreshTokenTtlMs(),
+    );
+
+    await this.authRepository.createRefreshToken(
+      user.id,
+      hashToken(refreshToken),
+      refreshTokenExpiresAt,
+    );
+
+    return {
+      access_token: this.jwtService.sign(payload),
+      refresh_token: refreshToken,
+      user,
+    };
+  }
+
+  private getRefreshTokenTtlMs(): number {
+    const configuredTtl = this.configService.get<string>(
+      'auth.jwtRefreshExpiresIn',
+    );
+
+    return parseDurationMs(configuredTtl) ?? DEFAULT_REFRESH_TOKEN_TTL_MS;
+  }
+
+  private toAuthenticatedUser(user: UserDocument): AuthenticatedUser {
+    const id = stringifyMongoId(user._id);
+    const roleId = stringifyMongoId(user.roleId);
+
+    if (!id || !roleId) {
+      throw new UnauthorizedException('Cau truc user khong hop le');
+    }
+
+    return {
+      id,
+      fullName: user.fullName,
+      email: user.email,
+      avatarUrl: user.avatarUrl ?? null,
+      roleId,
+      departmentId: stringifyMongoId(user.departmentId),
+      status: user.status,
+    };
+  }
+}
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function stringifyMongoId(value?: MongoId | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.toString();
+}
+
+function parseDurationMs(value?: string): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.trim().match(/^(\d+)([smhd])?$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  const unit = match[2]?.toLowerCase() ?? 's';
+  const multipliers: Record<string, number> = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+
+  return amount * multipliers[unit];
 }

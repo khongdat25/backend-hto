@@ -1,13 +1,17 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { ConfigService } from '@nestjs/config';
+import {
+  AuthenticatedUser,
+  JwtPayload,
+} from '../../../common/interfaces/authenticated-user.interface';
 import { UsersService } from '../../users/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private readonly configService: ConfigService,
+    configService: ConfigService,
     private readonly usersService: UsersService,
   ) {
     super({
@@ -17,17 +21,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any) {
-    // Tìm lại user từ database để đảm bảo user vẫn tồn tại và active
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.usersService.findById(payload.sub);
 
-    if (!user || (user.status && user.status !== 'active')) {
+    if (!user?._id || user.status !== 'active') {
       throw new UnauthorizedException(
-        'Người dùng không hợp lệ hoặc đã bị khóa',
+        'Nguoi dung khong hop le hoac da bi khoa',
       );
     }
 
-    const { passwordHash: _password, ...safeUser } = user;
-    return safeUser;
+    return {
+      id: user._id.toString(),
+      fullName: user.fullName,
+      email: user.email,
+      avatarUrl: user.avatarUrl ?? null,
+      roleId: user.roleId.toString(),
+      departmentId: user.departmentId?.toString() ?? null,
+      status: user.status,
+    };
   }
 }
