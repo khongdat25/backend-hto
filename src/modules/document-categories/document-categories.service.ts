@@ -44,14 +44,14 @@ export class DocumentCategoriesService {
     );
   }
 
-  async remove(id: string) {
-    // Kiểm tra danh mục có tồn tại hay không trước khi xóa
+  async toggleVisibility(id: string) {
+    // Kiểm tra danh mục có tồn tại hay không
     const existingCategory =
       await this.documentCategoriesRepository.findOne(id);
     if (!existingCategory) {
-      throw new NotFoundException('Danh mục tài liệu không tồn tại để xóa');
+      throw new NotFoundException('Danh mục tài liệu không tồn tại');
     }
 
-    return this.documentCategoriesRepository.remove(id);
+    return this.documentCategoriesRepository.toggleVisibility(id);
   }
 }

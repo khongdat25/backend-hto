@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -53,9 +52,11 @@ export class DocumentCategoriesController {
     return this.documentCategoriesService.update(id, updateDocumentCategoryDto);
   }
 
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete a document category by id' })
-  remove(@Param('id') id: string) {
-    return this.documentCategoriesService.remove(id);
+  @Patch(':id/toggle-visibility')
+  @ApiOperation({
+    summary: 'Toggle visibility of a document category (hide/show)',
+  })
+  toggleVisibility(@Param('id') id: string) {
+    return this.documentCategoriesService.toggleVisibility(id);
   }
 }

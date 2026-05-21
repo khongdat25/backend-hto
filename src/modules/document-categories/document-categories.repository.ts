@@ -17,6 +17,7 @@ export class DocumentCategoriesRepository {
       name: data.name,
       description: data.description || null,
       accessLevel: 'internal', // Giá trị mặc định
+      isHidden: false, // Mặc định không ẩn
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -50,9 +51,19 @@ export class DocumentCategoriesRepository {
     return this.findOne(id);
   }
 
-  async remove(id: string) {
+  async toggleVisibility(id: string) {
     // Trả về null ngay nếu ID không hợp lệ
     if (!ObjectId.isValid(id)) return null;
-    return await this.collection.deleteOne({ _id: new ObjectId(id) });
+    
+    const category = await this.findOne(id);
+    if (!category) return null;
+
+    const newIsHidden = !category.isHidden;
+    await this.collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { isHidden: newIsHidden, updatedAt: new Date() } },
+    );
+    
+    return { ...category, isHidden: newIsHidden, updatedAt: new Date() };
   }
 }
