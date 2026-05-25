@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SearchModule } from './modules/search/search.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 import { DocumentCategoriesModule } from './modules/document-categories/document-categories.module';
 
 @Module({
@@ -21,6 +22,7 @@ import { DocumentCategoriesModule } from './modules/document-categories/document
     UsersModule,
     AuthModule,
     SearchModule,
+    DocumentsModule,
     DocumentCategoriesModule,
   ],
   controllers: [AppController],
